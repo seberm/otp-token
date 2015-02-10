@@ -16,7 +16,11 @@ import sys
 import re
 import ConfigParser
 import os
+import logging
 from argparse import ArgumentParser
+from logging import error, warning
+
+DEFAULT_LOGGING_MODE = 'info'
 
 
 class Token():
@@ -131,10 +135,13 @@ def insert_token_data_to_clipboard(clip_data):
 if __name__ == '__main__':
     parser = ArgumentParser(description='OTP token generator')
     parser.add_argument('-f', '--file', default='~/.token', help='token filename')
-
     parser.add_argument('-g', '--generate', action='store_true', help='create new token file')
+    parser.add_argument('-l', '--log', choices=['DEBUG', 'ERROR', 'INFO', 'WARNING'], default=DEFAULT_LOGGING_MODE, type=str.upper, help='specify debug level [Default: %(default)s')
 
     args = parser.parse_args()
+
+    logging.basicConfig(level=args.log.upper())
+
     conf_file_path = os.path.abspath(os.path.expanduser(args.file))
 
     cnf = Config_file(conf_file_path)
@@ -152,7 +159,7 @@ if __name__ == '__main__':
         sys.exit(0)
     else:
         if not os.path.isfile(conf_file_path):
-            print 'File', args.file, 'does not exists. Use -g for generate'
+            error('File %s does not exists. Use -g for generate' % args.file)
             sys.exit(1)
 
         cnf.load_token_data()
@@ -163,4 +170,4 @@ if __name__ == '__main__':
 
         full_token_code = '%s%s' % (pin, token_code)
         insert_token_data_to_clipboard(full_token_code)
-        print 'token %s' % token_code
+        print 'token: %s' % token_code
