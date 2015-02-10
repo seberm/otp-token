@@ -1,4 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
+
+'''
+Author: Adam Okuliar
+
+Licence: 
+'''
+
 import hmac
 import base64
 import struct
@@ -9,15 +16,7 @@ import sys
 import re
 import ConfigParser
 import os
-from optparse import OptionParser
-
-parser = OptionParser()
-parser.add_option("-f", "--file", dest="file", default='~/.token',
-                  help="Token filename", metavar="FILE")
-
-parser.add_option("-g", "--generate",
-                  action="store_true", dest="generate", default=False,
-                  help="Create new token file")
+from argparse import ArgumentParser
 
 
 class Token():
@@ -73,17 +72,16 @@ class Credentials_store():
         self._pin = None
 
     def make_secret(self, length=40):
-
         if self._secret is not None:
             raise ValueError('Secret already loaded or generated')
         import random
-        key = ""
+        key = ''
         for i in range(length):
             key += "ABCDEFGHCIJKLMNOPQRSTUVWXYZ234567"[random.randint(1, 32)]
+
         self._secret = key
 
     def read_token_pin(self):
-
         if self._pin is not None:
             raise ValueError('PIN already loaded or generated')
 
@@ -91,31 +89,29 @@ class Credentials_store():
         pin2 = getpass.getpass('Verify PIN:')
         if pin != pin2:
             sys.exit('Password and verification does not match\n')
+
         self._pin = pin
 
     def pin_strength_check(self, min_length=8, groups=2):
         problems = []
         character_groups_count = 0
-        character_groups_regexes = [
-            r'[a-z]', r'[A-Z]', r'[0-9]', r'[@#$%^&+=_!^;\'\\`:"(){}\[\]\-\<\>\?\*\|,/~]']
+        character_groups_regexes = [r'[a-z]', r'[A-Z]', r'[0-9]', r'[@#$%^&+=_!^;\'\\`:"(){}\[\]\-\<\>\?\*\|,/~]']
         if len(self._pin) < min_length:
-            problems.append(
-                'Password is too short, minimum length is %d\n' % (min_length))
+            problems.append('Password is too short, minimum length is %d\n' % (min_length))
 
         for character_group in character_groups_regexes:
             if re.search(character_group, self._pin) is not None:
                 character_groups_count += 1
 
         if character_groups_count < groups:
-            problems.append('Your pin contains only %d character groups. Minimum is %d groups\n'
-                            % (character_groups_count, groups))
+            problems.append('Your pin contains only %d character groups. Minimum is %d groups\n' % (character_groups_count, groups))
 
         return problems
 
     def store_to_config(self, c):
         if self._secret is None:
-            raise ValueError(
-                'Secret not loaded or generated, nothing to store')
+            raise ValueError('Secret not loaded or generated, nothing to store')
+
         c.store_token_data(self._pin, self._secret)
 
     def load_from_config(self, c):
@@ -127,20 +123,24 @@ class Credentials_store():
 
 def insert_token_data_to_clipboard(clip_data):
     import subprocess
+    # TODO: support generation of token without xsel
     p = subprocess.Popen('xsel -bi'.split(), stdin=subprocess.PIPE)
     p.communicate(input=clip_data)
 
 
 if __name__ == '__main__':
+    parser = ArgumentParser(description='OTP token generator')
+    parser.add_argument('-f', '--file', default='~/.token', help='token filename')
 
-    (options, args) = parser.parse_args()
-    conf_file_path = os.path.abspath(os.path.expanduser(options.file))
+    parser.add_argument('-g', '--generate', action='store_true', help='create new token file')
 
-    generate = options.generate
+    args = parser.parse_args()
+    conf_file_path = os.path.abspath(os.path.expanduser(args.file))
+
     cnf = Config_file(conf_file_path)
     cs = Credentials_store()
 
-    if generate:
+    if args.generate:
         cs.make_secret()
         cs.read_token_pin()
         problems = cs.pin_strength_check()
@@ -152,7 +152,7 @@ if __name__ == '__main__':
         sys.exit(0)
     else:
         if not os.path.isfile(conf_file_path):
-            print 'File', options.file, 'does not exists. Use -g for generate'
+            print 'File', args.file, 'does not exists. Use -g for generate'
             sys.exit(1)
 
         cnf.load_token_data()
