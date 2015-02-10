@@ -21,6 +21,7 @@ from argparse import ArgumentParser
 from logging import error, warning
 
 DEFAULT_LOGGING_MODE = 'info'
+XSEL_PATH = '/usr/bin/xsel'
 
 
 class Token():
@@ -78,6 +79,7 @@ class Credentials_store():
     def make_secret(self, length=40):
         if self._secret is not None:
             raise ValueError('Secret already loaded or generated')
+
         import random
         key = ''
         for i in range(length):
@@ -126,9 +128,13 @@ class Credentials_store():
 
 
 def insert_token_data_to_clipboard(clip_data):
+    if not os.path.isfile(XSEL_PATH):
+        warning('Cannot find xsel utility')
+        return
+
     import subprocess
-    # TODO: support generation of token without xsel
-    p = subprocess.Popen('xsel -bi'.split(), stdin=subprocess.PIPE)
+    prog = '%s -bi' % XSEL_PATH
+    p = subprocess.Popen(prog.split(), stdin=subprocess.PIPE)
     p.communicate(input=clip_data)
 
 
