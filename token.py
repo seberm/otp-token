@@ -1,11 +1,4 @@
-#!/usr/bin/env python2
-
-'''
-Author: Adam Okuliar
-
-Licence: 
-'''
-
+#!/usr/bin/env python
 import hmac
 import base64
 import struct
@@ -13,19 +6,24 @@ import hashlib
 import time
 import getpass
 import sys
-import re
 import ConfigParser
 import os
-import logging
-from argparse import ArgumentParser
-from logging import error, warning
+import re
+import random
+from optparse import OptionParser
+import subprocess
+import qrcode
 
-DEFAULT_LOGGING_MODE = 'info'
-XSEL_PATH = '/usr/bin/xsel'
+
+parser = OptionParser()
+parser.add_option("-f", "--file", dest="file", default='~/.token', help="Token filename", metavar="FILE")
+parser.add_option("-g", "--generate", action="store_true", dest="generate", default=False, help="Create new token file")
+parser.add_option("-s", "--show", action="store_true", dest="show", default=False, help="Show all secrets in configuration file")
+
+# dependecies for project are xsel python-qrcode
 
 
 class Token():
-
     def __init__(self, secret):
         self._secret = secret
 
@@ -49,7 +47,6 @@ class Token():
 
 
 class Config_file():
-
     def __init__(self, path):
         self._path = path
 
@@ -76,18 +73,27 @@ class Credentials_store():
         self._secret = None
         self._pin = None
 
-    def make_secret(self, length=40):
+    def __str__(self):
+        out = ''
+        out += 'TOTP one time password token secret\n'
+        out += 'Secret (Base32)\t: %s\n' % self._secret
+        out += 'Secret (hex)\t: %s\n' % self.b32tob16(self._secret)
+        return out
+
+    def make_secret(self, length=32):
+
+        base32_charset = "ABCDEFGHCIJKLMNOPQRSTUVWXYZ234567"
+        max_index = len(base32_charset) - 1
+
         if self._secret is not None:
             raise ValueError('Secret already loaded or generated')
-
-        import random
-        key = ''
-        for i in range(length):
-            key += "ABCDEFGHCIJKLMNOPQRSTUVWXYZ234567"[random.randint(1, 32)]
-
+        key = ""
+        for _ in range(length):
+            key += base32_charset[random.randint(1, max_index)]
         self._secret = key
 
     def read_token_pin(self):
+
         if self._pin is not None:
             raise ValueError('PIN already loaded or generated')
 
@@ -95,7 +101,6 @@ class Credentials_store():
         pin2 = getpass.getpass('Verify PIN:')
         if pin != pin2:
             sys.exit('Password and verification does not match\n')
-
         self._pin = pin
 
     def pin_strength_check(self, min_length=8, groups=2):
@@ -110,14 +115,14 @@ class Credentials_store():
                 character_groups_count += 1
 
         if character_groups_count < groups:
-            problems.append('Your pin contains only %d character groups. Minimum is %d groups\n' % (character_groups_count, groups))
+            problems.append('Your pin contains only %d character groups. Minimum is %d groups\n'
+                            % (character_groups_count, groups))
 
         return problems
 
-    def store_to_config(self, c):
+    def save_to_config(self, c):
         if self._secret is None:
             raise ValueError('Secret not loaded or generated, nothing to store')
-
         c.store_token_data(self._pin, self._secret)
 
     def load_from_config(self, c):
@@ -126,34 +131,35 @@ class Credentials_store():
     def get_credentials(self):
         return self._pin, self._secret
 
+    def b32tob16(self, b32string):
+        if b32string is None:
+            return None
+        ascii_str = base64.b32decode(b32string, True)
+        hex_str = base64.b16encode(ascii_str)
+        return hex_str
+
+    def print_qr(self):
+        qr_url = 'otpauth://totp/token?secret=%s' % self._secret
+        qr = qrcode.QRCode()
+        qr.add_data(qr_url)
+        qr.print_tty()
+        print ''
+
 
 def insert_token_data_to_clipboard(clip_data):
-    if not os.path.isfile(XSEL_PATH):
-        warning('Cannot find xsel utility')
-        return
-
-    import subprocess
-    prog = '%s -bi' % XSEL_PATH
-    p = subprocess.Popen(prog.split(), stdin=subprocess.PIPE)
+    p = subprocess.Popen('xsel -bi'.split(), stdin=subprocess.PIPE)
     p.communicate(input=clip_data)
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description='OTP token generator')
-    parser.add_argument('-f', '--file', default='~/.token', help='token filename')
-    parser.add_argument('-g', '--generate', action='store_true', help='create new token file')
-    parser.add_argument('-l', '--log', choices=['DEBUG', 'ERROR', 'INFO', 'WARNING'], default=DEFAULT_LOGGING_MODE, type=str.upper, help='specify debug level [Default: %(default)s')
 
-    args = parser.parse_args()
-
-    logging.basicConfig(level=args.log.upper())
-
-    conf_file_path = os.path.abspath(os.path.expanduser(args.file))
+    (options, args) = parser.parse_args()
+    conf_file_path = os.path.abspath(os.path.expanduser(options.file))
 
     cnf = Config_file(conf_file_path)
     cs = Credentials_store()
 
-    if args.generate:
+    if options.generate:
         cs.make_secret()
         cs.read_token_pin()
         problems = cs.pin_strength_check()
@@ -161,19 +167,29 @@ if __name__ == '__main__':
             sys.stderr.writelines(problems)
             sys.exit(1)
 
-        cs.store_to_config(cnf)
-        sys.exit(0)
+        cs.save_to_config(cnf)
+        print cs
+        cs.print_qr()
+
+    elif options.show:
+
+        cnf.load_token_data()
+        cs.load_from_config(cnf)
+        print cs
+        cs.print_qr()
+
     else:
         if not os.path.isfile(conf_file_path):
-            error('File %s does not exists. Use -g for generate' % args.file)
+            print 'File %s does not exists. Use -g for generate' % options.file
             sys.exit(1)
 
         cnf.load_token_data()
         cs.load_from_config(cnf)
+
         pin, secret = cs.get_credentials()
         t = Token(secret)
         token_code = t.get_totp_token_code()
 
         full_token_code = '%s%s' % (pin, token_code)
         insert_token_data_to_clipboard(full_token_code)
-        print 'token: %s' % token_code
+        print 'token %s' % token_code
